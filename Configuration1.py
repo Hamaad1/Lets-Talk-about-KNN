@@ -7,7 +7,7 @@ from sklearn.metrics import mean_squared_error
 from matplotlib.ticker import MaxNLocator,FuncFormatter
 import sys
 
-sys.path.append('/mnt/c/Users/hamaa/OneDrive - Università degli Studi di Catania/PHD code/transformer_practice/University_valencia_IP/lets_talk_about_knn_code')
+sys.path.append('/lets_talk_about_knn_code')
 
 print("Using GPU" if tf.config.list_physical_devices('GPU') else "Using CPU")
 
@@ -88,8 +88,8 @@ def data_rep_positive(database):
     return database
 
 # Define file directory
-data_directory = '/mnt/c/Users/hamaa/OneDrive - Università degli Studi di Catania/PHD code/transformer_practice/University_valencia_IP/lets_talk_about_knn_code/dataset'
-results_directory = '/mnt/c/Users/hamaa/OneDrive - Università degli Studi di Catania/PHD code/transformer_practice/University_valencia_IP/lets_talk_about_knn_code'
+data_directory = '/lets_talk_about_knn_code/dataset'
+results_directory = '/lets_talk_about_knn_code'
 results_directory = os.path.join(results_directory,'Results and analysis', 'Results_pos_err', 'knn_plain2024', 'C1_test')
 
 # Ensure results directory exists
