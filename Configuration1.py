@@ -29,17 +29,12 @@ def remapFloorDB(database, origFloors, newFloors):
 def calculate_3d_positioning_error(y_true, y_pred):
     return np.sqrt(np.sum((y_true - y_pred) ** 2, axis=1))
 
-# Set print options to display the entire array, comment it if dont want to see whole array in ouput
 #np.set_printoptions(threshold=np.inf) # is variable threshold=1000
 
 def compute_distances(test_sample, train_rssi, distance_metric='cityblock', alpha=None):
     # Placeholder for distance computation
     if distance_metric == 'cityblock':
         return np.sum(np.abs(train_rssi - test_sample), axis=1)
-    elif distance_metric == 'euclidean':
-        return np.sqrt(np.sum((train_rssi - test_sample) ** 2, axis=1))
-    elif distance_metric == 'minkowski' and alpha is not None:
-        return np.sum(np.abs(train_rssi - test_sample) ** alpha, axis=1) ** (1 / alpha)
     else:
         raise ValueError("Unsupported distance metric or missing alpha for Minkowski distance.")
 
@@ -47,9 +42,6 @@ def compute_distances(test_sample, train_rssi, distance_metric='cityblock', alph
 def compute_weighted_centroid(nearest_positions, nearest_distances, strategy='unweighted'):
     if strategy == 'unweighted':
         return np.mean(nearest_positions, axis=0)
-    elif strategy == 'weighted':
-        weights = 1 / (nearest_distances + 1e-12)  # Adding a small value to avoid division by zero
-        return np.average(nearest_positions, axis=0, weights=weights)
     else:
         raise ValueError("Unsupported strategy. Choose 'unweighted' or 'weighted'.")
 
@@ -99,7 +91,7 @@ if not os.path.exists(results_directory):
 mean_errors_list = []
 
 # Iterate over all base names in the directory
-for base_name in ['TUT3']:#['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM001', 'TIE1', 'TUT1','TUT2', 'TUT3', 'TUT4', 'TUT5', 'TUT6', 'TUT7', 'UJI1', 'UTS1']:  # Add more base names as needed
+for base_name in ['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM001', 'TIE1', 'TUT1','TUT2', 'TUT3', 'TUT4', 'TUT5', 'TUT6', 'TUT7', 'UJI1', 'UTS1']:  # Add more base names as needed
     print(f"Processing dataset: {base_name}")
     
     train_coord_file = os.path.join(data_directory, f"{base_name}_trncrd.csv")
@@ -123,7 +115,7 @@ for base_name in ['TUT3']:#['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH
 
 
 ####################################################################
-#added code to handle missing data from the sensors and handling the foolr and building
+#added code to handle missing data from the sensors and handling the floor and building
 
     # Integrate database handling
     database_orig = {
