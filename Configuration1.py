@@ -4,7 +4,6 @@ import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
-from matplotlib.ticker import MaxNLocator,FuncFormatter
 import sys
 
 sys.path.append('/lets_talk_about_knn_code')
