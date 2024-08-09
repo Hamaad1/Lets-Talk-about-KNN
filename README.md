@@ -1,6 +1,7 @@
 C1 in the table are the results of the configuration file one. 
 These results are from the article "https://ieeexplore.ieee.org/document/10332535"
-Still, the output needs improvement for the dataset 
+Still, the output needs improvement for the dataset.
+
 Data Set   Ref Values   Obtained Values
 TUT3         9.25       9.59
 TUT6         1.87       1.94
