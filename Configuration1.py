@@ -1,104 +1,43 @@
 import os
+import sys
+import copy
+import time
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error
-import sys
-
-sys.path.append('/lets_talk_about_knn_code')
+from scipy.spatial.distance import cdist
+sys.path.append('../lets_talk_about_knn_code')
+from configurations_functions_knn import (remap_vector,compute_weighted_centroid,remapBldDB, remapFloorDB, datarepNewNull, datarepNewNullDB,calculate_3d_positioning_error,replace_non_detected_values, data_rep_positive,compute_distances)
 
 print("Using GPU" if tf.config.list_physical_devices('GPU') else "Using CPU")
 
-#from configurations_functions_knn import (remapBldDB, remapFloorDB)#knn_positioning,, datarepNewNullDB, calculate_3d_positioning_error_org
-
-# Define functions for remapping IDs
-def remapBldDB(database, origBlds, newBlds):
-    mapping = dict(zip(origBlds, newBlds))
-    for key in ['trncrd', 'tstcrd']:
-        database[key][:, 4] = np.array([mapping.get(bld, bld) for bld in database[key][:, 4]])
-    return database
-
-def remapFloorDB(database, origFloors, newFloors):
-    mapping = dict(zip(origFloors, newFloors))
-    for key in ['trncrd', 'tstcrd']:
-        database[key][:, 3] = np.array([mapping.get(floor, floor) for floor in database[key][:, 3]])
-    return database
-
-def calculate_3d_positioning_error(y_true, y_pred):
-    return np.sqrt(np.sum((y_true - y_pred) ** 2, axis=1))
-
-#np.set_printoptions(threshold=np.inf) # is variable threshold=1000
-
-def compute_distances(test_sample, train_rssi, distance_metric='cityblock', alpha=None):
-    # Placeholder for distance computation
-    if distance_metric == 'cityblock':
-        return np.sum(np.abs(train_rssi - test_sample), axis=1)
-    else:
-        raise ValueError("Unsupported distance metric or missing alpha for Minkowski distance.")
-
-
-def compute_weighted_centroid(nearest_positions, nearest_distances, strategy='unweighted'):
-    if strategy == 'unweighted':
-        return np.mean(nearest_positions, axis=0)
-    else:
-        raise ValueError("Unsupported strategy. Choose 'unweighted' or 'weighted'.")
-
-def knn_positioning(train_rssi, train_coords, test_rssi, k, strategy='unweighted', distance_metric='cityblock', alpha=None):
-    estimated_positions = []
-    for test_sample in test_rssi:
-        # Compute distances between the test sample and all training samples
-        distances = compute_distances(test_sample, train_rssi, distance_metric, alpha=alpha)
-        sorted_indices = np.argsort(distances)  # Indices of distances in ascending order
-        
-        n_candidates = k
-        while n_candidates < len(sorted_indices) and abs(distances[sorted_indices[n_candidates]] - distances[sorted_indices[n_candidates - 1]]) < 1e-12:
-            n_candidates += 1
-        
-        # Get all indices up to n_candidates
-        all_nearest_indices = sorted_indices[:n_candidates]
-        nearest_positions = train_coords[all_nearest_indices]
-        nearest_distances = distances[all_nearest_indices]
-        
-        # Compute the estimated position using the weighted centroid method
-        estimated_position = compute_weighted_centroid(nearest_positions, nearest_distances, strategy)
-        estimated_positions.append(estimated_position)
-    
-    return np.array(estimated_positions)
-
-def replace_non_detected_values(database, default_value, new_value):
-    database['trnrss'][database['trnrss'] == default_value] = new_value
-    database['tstrss'][database['tstrss'] == default_value] = new_value
-    return database
-    
-def data_rep_positive(database):
-    min_rssi = min(train_df_rssi.min().min(), test_df_rssi.min().min())
-    shift_value = max(0, -min_rssi)
-    database['trnrss'] += shift_value
-    database['tstrss'] += shift_value
-    return database
-
 # Define file directory
-data_directory = '/lets_talk_about_knn_code/dataset'
-results_directory = '/lets_talk_about_knn_code'
-results_directory = os.path.join(results_directory,'Results and analysis', 'Results_pos_err', 'knn_plain2024', 'C1_test')
+data_directory = '../dataset'
+results_directory = '../Results and analysis/Results_pos_err/knn_plain2024/C1'
 
 # Ensure results directory exists
 if not os.path.exists(results_directory):
     os.makedirs(results_directory)
 
+k = 1
+datarep = 'positive'
+strategy = 'unweighted'
+distance_metric = 'cityblock'
+alpha= 0.0001
+    
 mean_errors_list = []
 
 # Iterate over all base names in the directory
-for base_name in ['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM001', 'TIE1', 'TUT1','TUT2', 'TUT3', 'TUT4', 'TUT5', 'TUT6', 'TUT7', 'UJI1', 'UTS1']:  # Add more base names as needed
+for base_name in ['DSI1']:#,'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM001', 'TIE1', 'TUT1','TUT2', 'TUT3', 'TUT4', 'TUT5', 'TUT6', 'TUT7', 'UJI1', 'UTS1', 'GPR00' , 'GPR01' , 'GPR02', 'GPR03', 'GPR04', 'GPR05', 'GPR06', 'GPR07', 'GPR08', 'GPR09', 'GPR10', 'GPR11', 'GPR12', 'GPR13' ,'SOD01', 'SOD02', 'SOD03', 'SOD04', 'SOD05', 'SOD06', 'SOD07', 'SOD08', 'SOD09', 'UEXB1', 'UEXB2', 'UEXB3', 'UJIB1', 'UJIB2']:  # Add more base names as needed
     print(f"Processing dataset: {base_name}")
     
     train_coord_file = os.path.join(data_directory, f"{base_name}_trncrd.csv")
     train_rssi_file = os.path.join(data_directory, f"{base_name}_trnrss.csv")
     test_coord_file = os.path.join(data_directory, f"{base_name}_tstcrd.csv")
     test_rssi_file = os.path.join(data_directory, f"{base_name}_tstrss.csv")
-    
-    # Check if all required files exist
+
+    # Check if all required T3 exist
     if not (os.path.exists(train_coord_file) and os.path.exists(train_rssi_file) and os.path.exists(test_coord_file) and os.path.exists(test_rssi_file)):
         print(f"Missing files for {base_name}, skipping...")
         continue
@@ -109,42 +48,41 @@ for base_name in ['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM00
     test_df_coord = pd.read_csv(test_coord_file, header=None, names=coord_columns)
     
     # Load RSSI signal data
-    train_df_rssi = pd.read_csv(train_rssi_file, header=None)
-    test_df_rssi = pd.read_csv(test_rssi_file, header=None)
+    train_df_rssi = pd.read_csv(train_rssi_file, header=None) #, skiprows=10, nrows=100
+    test_df_rssi = pd.read_csv(test_rssi_file, header=None) #, skiprows=10, nrows=100, it will skip 1st 10, and use next 100
 
+    ####################################################################
 
-####################################################################
-#added code to handle missing data from the sensors and handling the floor and building
-
-    # Integrate database handling
-    database_orig = {
+    # Raw Database
+    database_main = {
         'trncrd': train_df_coord[['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID']].values,
         'tstcrd': test_df_coord[['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID']].values,
         'trnrss': train_df_rssi.values,
         'tstrss': test_df_rssi.values
     }
-
+    
+    # Create an independent deep copy of the original database
+    database_orig = copy.deepcopy(database_main)
+    
     # Remap building and floor IDs
     origBlds = np.unique(database_orig['trncrd'][:, 4])
     nblds = len(origBlds)
     database0 = remapBldDB(database_orig, origBlds, np.arange(1, nblds + 1))
-
+    
     origFloors = np.unique(database_orig['trncrd'][:, 3])
     nfloors = len(origFloors)
-    database0 = remapFloorDB(database_orig, origFloors, np.arange(1, nfloors + 1))
-    
-
+    database0 = remapFloorDB(database0, origFloors, np.arange(1, nfloors + 1))
+   
     # Define non-detected values
     defaultNonDetectedValue = 100
-    #defaultNonDetectedValue = np.array([100])
-        
+    newNonDetectedValue = [] 
+    
     # Handle non-detected RSSI values
     minValueDetected = min(np.min(database0['trnrss']), np.min(database0['tstrss']))
-    newNonDetectedValue = []
-
+        
     if len(newNonDetectedValue) == 0:
-        newNonDetectedValue = minValueDetected -1
-
+         newNonDetectedValue = minValueDetected -1
+    
     #Manual fix for WGS84 datasets and UEXBx datasets
     if np.min(database0['trnrss']) == -200:
         defaultNonDetectedValue = -200
@@ -175,101 +113,199 @@ for base_name in ['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM00
 
         defaultNonDetectedValue = -109
         newNonDetectedValue = -109
-        
+
     #Handling Non detected values
-    
-    if defaultNonDetectedValue != 0: #removed .size
+    if defaultNonDetectedValue != 0: 
         database0 = replace_non_detected_values(database0, defaultNonDetectedValue, newNonDetectedValue)
-     
-    # Processing data to make it positive
-    database = data_rep_positive(database0)
+    
+    # print("Initial Row 51 of tstcrd database0:", database0['tstcrd'][51, :])
 
-    database_cleaned = {
-        'trncrd': np.array(database['trncrd']),
-        'tstcrd': np.array(database['tstcrd']),
-        'trnrss': np.array(database['trnrss']),
-        'tstrss': np.array(database['tstrss'])
-    }
-
+    # Check if datarep is 'positive'
+    if datarep == 'positive':
+        database = data_rep_positive(database0)
+        if 'plgd10' in distance_metric or 'plgd40' in distance_metric:
+            additionalparams =  -85 - newNonDetectedValue
+        else:
+            additionalparams = 0
+    
+    rsamples1 = database['trnrss'].shape[0]
+    osamples1 = database['tstrss'].shape[0]
+    nmacs1 = database['tstrss'].shape[1]
+    
     # Create boolean arrays to indicate valid Mac addresses (APs)
-    database_cleaned['trainingValidMacs'] = (database_cleaned['trnrss'] != defaultNonDetectedValue)
-    database_cleaned['testValidMacs'] = (database_cleaned['tstrss'] != defaultNonDetectedValue)
-   
-    vecidxmacs = np.arange(database_cleaned['trnrss'].shape[1])
-    vecidxTsamples = np.arange(database_cleaned['trnrss'].shape[0])
-    vecidxVsamples = np.arange(database_cleaned['tstrss'].shape[0])
+    database['trainingValidMacs'] = (database_main['trnrss'] != defaultNonDetectedValue) 
+    database['testValidMacs'] = (database_main['tstrss'] != defaultNonDetectedValue)
+    
+    # Count and get the total number of valid access points in both training and test data
+    trainingValidMacs = (database['trainingValidMacs'].sum(axis=0) > 0).sum()
+    testValidMacs = (database['testValidMacs'].sum(axis=0) > 0).sum()
+    
+    # Print the results
+   # print(f'Total valid access points in training data: {trainingValidMacs}')
+   # print(f'Total valid access points in test data: {testValidMacs}')
 
-    validMacs = vecidxmacs[np.sum(database_cleaned['trainingValidMacs'], axis=0) > 0]
-
+    vecidxmacs = np.arange(nmacs1)
+    vecidxTsamples = np.arange(rsamples1)
+    vecidxVsamples = np.arange(osamples1)
+    
+    validMacs = vecidxmacs[np.sum(database['trainingValidMacs'], axis=0) > 0]
+    
     # Keep only the valid Mac addresses
-    database_cleaned['trnrsss'] = database_cleaned['trnrss'][:, validMacs]
-    database_cleaned['trainingValidMacs'] = database_cleaned['trainingValidMacs'][:, validMacs]
-    database_cleaned['tstrss'] = database_cleaned['tstrss'][:, validMacs]
-    database_cleaned['testValidMacs'] = database_cleaned['testValidMacs'][:, validMacs]
+    database['trnrss'] = database['trnrss'][:, validMacs]
+    database['trainingValidMacs'] = database['trainingValidMacs'][:, validMacs]
+    database['tstrss'] = database['tstrss'][:, validMacs]
+    database['testValidMacs'] = database['testValidMacs'][:, validMacs]
 
     # Clean void fingerprints
-    validTSamples = vecidxTsamples[np.sum(database_cleaned['trainingValidMacs'], axis=1) > 0]
-    database_cleaned['trnrss'] = database_cleaned['trnrss'][validTSamples, :]
-    database_cleaned['trainingValidMacs'] = database_cleaned['trainingValidMacs'][validTSamples, :]
-    database_cleaned['trncrds'] = database_cleaned['trncrd'][validTSamples, :]
+    validTSamples = vecidxTsamples[np.sum(database['trainingValidMacs'], axis=1) > 0]
+    #print(f'Total valid samples in training: {(np.sum(database["trainingValidMacs"], axis=1) > 0).sum()}')
+    
+    database['trnrss'] = database['trnrss'][validTSamples, :]
+    database['trainingValidMacs'] = database['trainingValidMacs'][validTSamples, :]
+    database['trncrd'] = database['trncrd'][validTSamples, :]
 
-    validVSamples = vecidxVsamples[np.sum(database_cleaned['testValidMacs'], axis=1) > 0]
-    database_cleaned['tstrss'] = database_cleaned['tstrss'][validVSamples, :]
-    database_cleaned['testValidMacs'] = database_cleaned['testValidMacs'][validVSamples, :]
-    database_cleaned['tstcrd'] = database_cleaned['tstcrd'][validVSamples, :]
 
-    # Convert cleaned dataframes to DataFrames if needed
-    train_df_rssi_cleaned = pd.DataFrame(database_cleaned['trnrss'])
-    test_df_rssi_cleaned = pd.DataFrame(database_cleaned['tstrss'])
+    validVSamples = vecidxVsamples[np.sum(database['testValidMacs'], axis=1) > 0]
+    #print(f'Total valid fingerprints in testing: {(np.sum(database["testValidMacs"], axis=1) > 0).sum()}')
 
-    # Convert cleaned coordinates to DataFrames if needed
-    train_df_coord_cleaned = pd.DataFrame(database_cleaned['trncrd'], columns=['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID'])
-    test_df_coord_cleaned = pd.DataFrame(database_cleaned['tstcrd'], columns=['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID'])
+    database['tstrss'] = database['tstrss'][validVSamples, :]
+    database['testValidMacs'] = database['testValidMacs'][validVSamples, :]
+    database['tstcrd'] = database['tstcrd'][validVSamples, :]
+   
+    assert database['trnrss'].shape[0] == database['trncrd'].shape[0], "Mismatch in number of training samples."
+    assert database['tstrss'].shape[0] == database['tstcrd'].shape[0], "Mismatch in number of test samples."
 
-    rsamples = database_cleaned['trnrss'].shape[0]
-    osamples = database_cleaned['tstrss'].shape[0]
-    nmacs = database_cleaned['tstrss'].shape[1]
+    trainingMacs = database['trnrss']
+    testMacs = database['trnrss']
+    trainingLabels = database['tstcrd']
+    
+    # Creating dataframe
+    train_df_rssi_cleaned = pd.DataFrame(database['trnrss'])
+    test_df_rssi_cleaned = pd.DataFrame(database['tstrss'])
+    train_df_coord_cleaned = pd.DataFrame(database['trncrd'], columns=['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID'])
+    test_df_coord_cleaned = pd.DataFrame(database['tstcrd'], columns=['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID'])
+
+    rsamples = database['trnrss'].shape[0]
+    osamples = database['tstrss'].shape[0]
+    nmacs = database['tstrss'].shape[1]
 
     # Combine training data
-    train_df_combined = pd.concat([train_df_coord_cleaned[['Latitude', 'Longitude', 'Altitude']], train_df_rssi_cleaned], axis=1)
-
-    X_train = train_df_combined.iloc[:, 3:]
-    y_train = train_df_combined[['Latitude', 'Longitude', 'Altitude']]
+    train_df_combined = pd.concat([train_df_coord_cleaned[['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID']], train_df_rssi_cleaned], axis=1)
+    X_train = train_df_combined.iloc[:, 5:]
+    y_train = train_df_combined[['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID']]
     
-    # Combine test data
-    test_df_combined = pd.concat([test_df_coord_cleaned[['Latitude', 'Longitude', 'Altitude']], test_df_rssi_cleaned], axis=1)
-  
-    # Set specific values for k, strategy, and distance_metric
-    k = 1
-    strategy = 'unweighted'
-    distance_metric = 'cityblock'
-    alpha= 0.1
+    test_rssi = test_df_rssi_cleaned.iloc[:, 5:]# .iloc[50:101, 10:21] first is for row range and 2nd is for column range
+    test_df_combined = pd.concat([test_df_coord_cleaned[['Latitude', 'Longitude', 'Altitude', 'FloorID', 'BuildingID']], test_df_rssi_cleaned], axis=1)  
 
     print(f"Running k={k}, strategy={strategy}, distance_metric={distance_metric}")
-    
+
     # Perform K-NN positioning and error calculation
-    y_test_pred = knn_positioning(X_train.values, y_train.values, test_df_combined.iloc[:, 3:].values, k, strategy, distance_metric, alpha)
-    test_errors = calculate_3d_positioning_error(test_df_coord_cleaned[['Latitude', 'Longitude', 'Altitude']].values, y_test_pred)
+    start_time = time.perf_counter()
+
+    # Initialize lists to store the results
+    estimated_positions = []
+    estimated_buildings = []
+    estimated_floors = []
+    points_list = []
+          
+    # Loop over each test sample
+    for i in range(test_rssi.shape[0]):
+        
+        # Step 1: Extract valid MAC addresses for the current test sample
+        ofp_v = database['testValidMacs'][i, :]  # Valid MACs for the current test sample
+        
+        # Step 2: Filter training samples based on valid MACs
+        valid_indices = np.sum(database['trainingValidMacs'][:, ofp_v], axis=1) > 0
+        samples = vecidxTsamples[:len(valid_indices)][valid_indices]     
+       
+        trainingMacs = database['trnrss'][samples, :]
+        trainingValidMacs = database['trainingValidMacs'][samples, :]  # Replace `validMacs` with the correct training MACs
+        trainingLabels = database['trncrd'][samples, :]
+
+        rsamplesreduced = database['trnrss'].shape[0]  # Number of reduced samples
+        
+        # Step 3: Extract the current test sample's RSSI vector
+        ofp = database['tstrss'][i, :]
+        opf1 = np.tile(ofp, (rsamplesreduced, 1))
+        
+        # Step 4: Compute distances between the test sample and filtered training samples
+        distances = compute_distances(trainingMacs, ofp, distance_metric,additionalparams)
+
+        # Step 5: Sort distances and find k nearest neighbors
+        sorted_indices = np.argsort(distances)  # Sort by distance
+        distancessort = distances[sorted_indices]  # Sorted distances
+        candidates = sorted_indices  # Candidate indices in sorted order
+
+        # Step 6: Determine the number of candidates (k)
+        n_candidates = min(k, len(distances))
+
+        # Check for ties in distances and expand the number of candidates if needed
+        while n_candidates < rsamplesreduced:
+            if abs(distancessort[n_candidates - 1] - distancessort[n_candidates]) < 1e-12:
+                n_candidates += 1
+            else:
+                break
+        
+        # Step 7: Get the nearest positions, buildings, and floors
+        nearest_indices = candidates[:n_candidates]
+        nearest_positions = trainingLabels[nearest_indices, :3]
+        nearest_buildings = trainingLabels[nearest_indices, 4]
+        nearest_floors = trainingLabels[nearest_indices, 3]
+        
+        # Step 8: Estimate the building, floor, and position
+        estimated_building = np.round(np.mean(nearest_buildings))
+        estimated_floor = np.round(np.mean(nearest_floors))
+        estimated_position = compute_weighted_centroid(nearest_positions, distancessort[:n_candidates], strategy)
+
+        # Append results
+        estimated_positions.append(estimated_position)
+        estimated_buildings.append(estimated_building)
+        estimated_floors.append(estimated_floor)
+        points_list.append(n_candidates)
+
+    # Step 7: Remap buildings and floors to real-world values
+    real_world_buildings = remap_vector(np.array(estimated_buildings), np.arange(1, nblds + 1), origBlds)
+    real_world_floors = remap_vector(np.array(estimated_floors), np.arange(1, nfloors + 1), origFloors)
+
+    # After the loop, create a dictionary to store the results
+    y_test_pred = {
+        'positions': np.array(estimated_positions),
+        'buildings': np.array(estimated_buildings),
+        'floors': np.array(estimated_floors),
+        'points': np.array(points_list)
+    }
+
+    test_errors = calculate_3d_positioning_error(test_df_coord_cleaned[['Latitude', 'Longitude', 'Altitude']].values,y_test_pred['positions'])# y_test_pred)
     mean_error = np.mean(test_errors)
-    mean_errors_list.append({'Dataset Name': base_name, 'k': k, 'Strategy': strategy, 'Distance Metric': distance_metric, 'Mean Error': mean_error})
-    print(f'{base_name} Test Mean 3D Positioning Error: {np.round(mean_error, 2)}')
+
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+       
+    #mean_errors_list.append({'Dataset Name': base_name, 'k': k, 'Strategy': strategy, 'Distance Metric': distance_metric, 'Mean Error': mean_error})
+    #this is how i am saving, i comment above line as i just want to get the error in below line. uncomment it, if need all information
+    
+    mean_errors_list.append({'Dataset Name': base_name, 'Mean Error': np.round(mean_error, 2)})
+    #print(f'{base_name} Test Mean 3D Positioning Error: {np.round(mean_error, 3)}')
 
     # Create a DataFrame to store errors, actual coordinates, and predicted coordinates
     results_df = pd.DataFrame({
-        'Latitude_pred': y_test_pred[:, 0],
-        'Longitude_pred': y_test_pred[:, 1],
-        'Altitude_pred': y_test_pred[:, 2],
+        'Latitude_pred': y_test_pred['positions'][:, 0],
+        'Longitude_pred': y_test_pred['positions'][:, 1],
+        'Altitude_pred': y_test_pred['positions'][:, 2],
     })
 
     print(f'\nRunning the algorithm with')
-    print(f'    database features      : [{rsamples},{osamples},{nmacs}]')
+    print(f'    database features pre  : [{rsamples1},{osamples1},{nmacs1}]')
+    print(f'    database New features  : [{rsamples},{osamples},{nmacs}]')
     print(f'    k                      : {k}')
     #print(f'    datarep                : {datarep}')
     print(f'    minValueDetected       : {minValueDetected }')
     print(f'    defaultNonDetectedValue: {defaultNonDetectedValue}')
     print(f'    newNonDetectedValue    : {newNonDetectedValue}')
     print(f'    distanceMetric         : {distance_metric}')
-    
+    print(f'    Data Set used          : {base_name} ')
+    print(f'    3D Positioning Error   : {np.round(mean_error, 2)} m')
+
 
     # results = {
     #     'error': {np.round(mean_error, 2)},
@@ -293,11 +329,15 @@ for base_name in ['DSI1', 'DSI2', 'LIB1', 'LIB2', 'MAN1', 'MAN2', 'SAH1', 'SIM00
     error_df = pd.DataFrame({'Error': np.round(test_errors, 2)})  # Round errors to 2 decimal places
 
     # Save the errors to CSV without index
-    error_file = os.path.join(dataset_results_directory, f"errors_{base_name}_k{k:03d}_{distance_metric}.csv")#_{distance_metric}_alpha{alpha}.csv
+    #this is my style of saving, 
+    #error_file = os.path.join(dataset_results_directory, f"errors_{base_name}_k{k:03d}_{distance_metric}.csv")#_{distance_metric}_alpha{alpha}.csv
+
+    #try to save according to sir style
+    error_file = os.path.join(dataset_results_directory, f"errors_rep{k:03d}.csv")#_{distance_metric}_alpha{alpha}.csv
     error_df.to_csv(error_file, index=False, header=None)
     mean_errors_df = pd.DataFrame(mean_errors_list)
 
-    # Save the mean errors to CSV file
-    mean_errors_summary_file = os.path.join(results_directory, f"mean_errors_summary{k}.csv")
-    mean_errors_df.to_csv(mean_errors_summary_file, index=False)
-    print(f'Saved mean errors summary to {mean_errors_summary_file}')
+# Save the mean errors to CSV file
+mean_errors_summary_file = os.path.join(results_directory, f"mean_errors_summary{k}.csv")
+mean_errors_df.to_csv(mean_errors_summary_file, index=False)
+print(f'Saved mean errors summary to {mean_errors_summary_file}')
